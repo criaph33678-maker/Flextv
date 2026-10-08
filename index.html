@@ -65,7 +65,7 @@
       margin-bottom: 4px;
     }
 
-    .input-group input {
+    .input-group input[type="text"] {
       width: 100%;
       padding: 10px;
       border-radius: 6px;
@@ -74,6 +74,18 @@
       color: #fff;
       font-size: 13px;
       outline: none;
+    }
+
+    .file-input {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #aaa;
+    }
+
+    .divider {
+      margin: 15px 0;
+      color: #555;
+      font-size: 12px;
     }
 
     .btn-login {
@@ -179,15 +191,23 @@
 </head>
 <body>
 
-  <!-- TELA DE LOGIN -->
+  <!-- TELA DE ENTRADA -->
   <div class="login-container" id="loginScreen">
     <div class="login-card">
       <h2>FLEX TV WEB</h2>
+      
       <div class="input-group">
-        <label>URL / Link da Lista M3U</label>
-        <input type="text" id="m3uUrlInput" placeholder="https://servidor.com/get.php?username=...&type=m3u">
+        <label>Cole a URL da Lista M3U (HTTPS)</label>
+        <input type="text" id="m3uUrlInput" placeholder="https://servidor.com/lista.m3u">
       </div>
-      <button class="btn-login" onclick="startApp()">CARREGAR LISTA</button>
+      <button class="btn-login" onclick="startAppFromUrl()">CARREGAR POR LINK</button>
+
+      <div class="divider">── OU ──</div>
+
+      <div class="input-group">
+        <label>Carregar Ficheiro .m3u do dispositivo</label>
+        <input type="file" id="m3uFileInput" accept=".m3u, .m3u8, text/plain" class="file-input" onchange="startAppFromFile(event)">
+      </div>
     </div>
   </div>
 
@@ -238,23 +258,49 @@
               return text;
             }
           }
-        } catch (e) {
-          console.warn('Tentativa falhou:', url);
-        }
+        } catch (e) {}
       }
-      throw new Error('Bloqueio de CORS ou servidor indisponível em HTTPS.');
+      throw new Error('Bloqueio de CORS ou servidor sem suporte a HTTPS.');
     }
 
-    async function startApp() {
+    async function startAppFromUrl() {
       const url = document.getElementById('m3uUrlInput').value.trim();
-      if (!url) return alert('Por favor, cole a URL da lista M3U!');
+      if (!url) return alert('Insira a URL M3U!');
 
       localStorage.setItem('flex_m3u_url', url);
+      showAppScreen();
 
+      const listContainer = document.getElementById('itemList');
+      listContainer.innerHTML = '<p style="text-align:center; padding:20px; color:#888;">A carregar lista...</p>';
+
+      try {
+        const text = await fetchM3U(url);
+        parseM3U(text);
+        renderCurrentList();
+      } catch (err) {
+        alert('Erro ao carregar lista: ' + err.message + '\n\nSugestão: Descarregue o ficheiro .m3u no dispositivo e use a opção de carregar ficheiro.');
+        logout();
+      }
+    }
+
+    function startAppFromFile(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      showAppScreen();
+
+      reader.onload = function(e) {
+        const text = e.target.result;
+        parseM3U(text);
+        renderCurrentList();
+      };
+      reader.readAsText(file);
+    }
+
+    function showAppScreen() {
       document.getElementById('loginScreen').style.display = 'none';
       document.getElementById('appScreen').style.display = 'flex';
-
-      await loadM3uList(url);
     }
 
     function logout() {
@@ -262,20 +308,6 @@
       document.getElementById('appScreen').style.display = 'none';
       document.getElementById('loginScreen').style.display = 'flex';
       if (hls) hls.destroy();
-    }
-
-    async function loadM3uList(m3uUrl) {
-      const listContainer = document.getElementById('itemList');
-      listContainer.innerHTML = '<p style="text-align:center; padding:20px; color:#888;">A carregar lista...</p>';
-
-      try {
-        const text = await fetchM3U(m3uUrl);
-        parseM3U(text);
-        renderCurrentList();
-      } catch (err) {
-        alert('Erro ao carregar a lista: ' + err.message + '\nVerifique se o link começa por https:// e se está ativo.');
-        logout();
-      }
     }
 
     function parseM3U(m3uContent) {
@@ -293,11 +325,7 @@
           currentGroup = groupMatch ? groupMatch[1] : 'Geral';
 
           const commaIdx = line.lastIndexOf(',');
-          if (commaIdx !== -1) {
-            currentTitle = line.substring(commaIdx + 1).trim();
-          } else {
-            currentTitle = 'Conteúdo sem nome';
-          }
+          currentTitle = commaIdx !== -1 ? line.substring(commaIdx + 1).trim() : 'Sem nome';
         } else if (line.length > 0 && !line.startsWith('#')) {
           const itemUrl = line;
           const grp = currentGroup.toLowerCase();
@@ -376,7 +404,7 @@
       const savedUrl = localStorage.getItem('flex_m3u_url');
       if (savedUrl) {
         document.getElementById('m3uUrlInput').value = savedUrl;
-        startApp();
+        startAppFromUrl();
       }
     };
   </script>
