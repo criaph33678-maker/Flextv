@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
   <title>Flex TV Player</title>
 
-  <!-- Configurações PWA para iOS (Remove barras do Safari) -->
+  <!-- Configurações PWA para iOS -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Flex TV">
@@ -25,7 +25,6 @@
       padding-bottom: env(safe-area-inset-bottom);
     }
 
-    /* ECRÃ DE LOGIN */
     .login-container {
       display: flex;
       flex-direction: column;
@@ -39,7 +38,7 @@
     .login-card {
       background: #181b22;
       border: 1px solid #2a2e39;
-      padding: 30px 20px;
+      padding: 25px 20px;
       border-radius: 12px;
       width: 100%;
       max-width: 360px;
@@ -48,58 +47,47 @@
     }
 
     .login-card h2 {
-      margin-bottom: 20px;
+      margin-bottom: 15px;
       color: #0084ff;
-      font-size: 24px;
-      letter-spacing: 1px;
+      font-size: 22px;
     }
 
     .input-group {
-      margin-bottom: 15px;
+      margin-bottom: 12px;
       text-align: left;
     }
 
     .input-group label {
       display: block;
-      font-size: 12px;
+      font-size: 11px;
       color: #aaa;
-      margin-bottom: 5px;
+      margin-bottom: 4px;
     }
 
     .input-group input {
       width: 100%;
-      padding: 12px;
-      border-radius: 8px;
+      padding: 10px;
+      border-radius: 6px;
       border: 1px solid #2f3442;
       background: #0f1115;
       color: #fff;
-      font-size: 14px;
+      font-size: 13px;
       outline: none;
-    }
-
-    .input-group input:focus {
-      border-color: #0084ff;
     }
 
     .btn-login {
       width: 100%;
-      padding: 14px;
+      padding: 12px;
       border: none;
-      border-radius: 8px;
+      border-radius: 6px;
       background: #0084ff;
       color: #fff;
       font-weight: bold;
-      font-size: 16px;
+      font-size: 15px;
       cursor: pointer;
       margin-top: 10px;
-      transition: background 0.2s;
     }
 
-    .btn-login:active {
-      background: #0066cc;
-    }
-
-    /* INTERFACE DO PLAYER */
     .app-container {
       display: none;
       flex-direction: column;
@@ -115,10 +103,7 @@
       border-bottom: 1px solid #232733;
     }
 
-    header h1 {
-      font-size: 18px;
-      color: #0084ff;
-    }
+    header h1 { font-size: 18px; color: #0084ff; }
 
     .btn-logout {
       background: #2f3442;
@@ -127,19 +112,10 @@
       padding: 6px 12px;
       border-radius: 6px;
       font-size: 12px;
-      cursor: pointer;
     }
 
-    .player-section {
-      background: #000;
-      width: 100%;
-    }
-
-    video {
-      width: 100%;
-      max-height: 35vh;
-      display: block;
-    }
+    .player-section { background: #000; width: 100%; }
+    video { width: 100%; max-height: 35vh; display: block; }
 
     .channels-section {
       flex: 1;
@@ -148,20 +124,16 @@
     }
 
     .channel-item {
-      padding: 14px;
+      padding: 12px;
       background: #181b22;
-      margin-bottom: 8px;
-      border-radius: 8px;
+      margin-bottom: 6px;
+      border-radius: 6px;
       border: 1px solid #232733;
+      font-size: 14px;
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
     }
 
-    .channel-item:active {
-      background: #0084ff;
-    }
+    .channel-item:active { background: #0084ff; }
   </style>
 </head>
 <body>
@@ -171,8 +143,8 @@
     <div class="login-card">
       <h2>FLEX TV WEB</h2>
       <div class="input-group">
-        <label>DNS / Servidor</label>
-        <input type="text" id="serverHost" placeholder="http://meuservidor.com:8080">
+        <label>DNS / Servidor (URL com porta)</label>
+        <input type="text" id="serverHost" placeholder="http://servidor.com:8080">
       </div>
       <div class="input-group">
         <label>Usuário</label>
@@ -197,9 +169,7 @@
       <video id="videoPlayer" controls autoplay></video>
     </div>
 
-    <div class="channels-section" id="channelList">
-      <!-- Canais inseridos via JS -->
-    </div>
+    <div class="channels-section" id="channelList"></div>
   </div>
 
   <script>
@@ -210,33 +180,44 @@
     const video = document.getElementById('videoPlayer');
     let hls = new Hls();
 
-    window.onload = () => {
-      const savedHost = localStorage.getItem('iptv_host');
-      const savedUser = localStorage.getItem('iptv_user');
-      const savedPass = localStorage.getItem('iptv_pass');
+    // Lista de proxies de contingência
+    const PROXIES = [
+      url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+      url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+      url => `https://thingproxy.freeboard.io/fetch/${url}`
+    ];
 
-      if (savedHost && savedUser && savedPass) {
-        document.getElementById('serverHost').value = savedHost;
-        document.getElementById('username').value = savedUser;
-        document.getElementById('password').value = savedPass;
-        login();
+    async function fetchWithFallback(targetUrl) {
+      // Tenta conexão direta primeiro
+      try {
+        const directRes = await fetch(targetUrl);
+        if (directRes.ok) return await directRes.text();
+      } catch (e) {}
+
+      // Tenta cada proxy da lista
+      for (const proxyFn of PROXIES) {
+        try {
+          const res = await fetch(proxyFn(targetUrl));
+          if (res.ok) {
+            const text = await res.text();
+            if (text && text.includes('#EXTM3U')) return text;
+          }
+        } catch (e) {}
       }
-    };
+      throw new Error('Não foi possível conectar');
+    }
 
     async function login() {
       let host = document.getElementById('serverHost').value.trim();
       const user = document.getElementById('username').value.trim();
       const pass = document.getElementById('password').value.trim();
 
-      if (!host || !user || !pass) {
-        return alert('Preencha todos os campos!');
-      }
+      if (!host || !user || !pass) return alert('Preencha todos os campos!');
 
       if (host.endsWith('/')) host = host.slice(0, -1);
-
-      localStorage.setItem('iptv_host', host);
-      localStorage.setItem('iptv_user', user);
-      localStorage.setItem('iptv_pass', pass);
+      if (!host.startsWith('http://') && !host.startsWith('https://')) {
+        host = 'http://' + host;
+      }
 
       const m3uUrl = `${host}/get.php?username=${user}&password=${pass}&type=m3u_plus&output=ts`;
 
@@ -247,24 +228,17 @@
     }
 
     function logout() {
-      localStorage.clear();
       document.getElementById('appScreen').style.display = 'none';
       document.getElementById('loginScreen').style.display = 'flex';
       if (hls) hls.destroy();
     }
 
-    async function loadChannels(url) {
+    async function loadChannels(m3uUrl) {
       const listContainer = document.getElementById('channelList');
-      listContainer.innerHTML = '<p style="text-align:center; padding:20px; color:#888;">Carregando canais...</p>';
-
-      // Utilizando o proxy CORS para contornar o bloqueio de navegador
-      const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(url);
+      listContainer.innerHTML = '<p style="text-align:center; padding:20px; color:#888;">Carregando lista de canais...</p>';
 
       try {
-        const response = await fetch(proxyUrl);
-        if (!response.ok) throw new Error('Erro na requisição');
-        
-        const text = await response.text();
+        const text = await fetchWithFallback(m3uUrl);
         const lines = text.split('\n');
 
         listContainer.innerHTML = '';
@@ -279,32 +253,27 @@
             const channelUrl = line;
             const item = document.createElement('div');
             item.className = 'channel-item';
-            item.innerHTML = `<span>${currentTitle || 'Canal'}</span> ▶`;
+            item.innerHTML = `📺 ${currentTitle || 'Canal'}`;
             item.onclick = () => playStream(channelUrl);
             listContainer.appendChild(item);
             currentTitle = '';
           }
         });
       } catch (err) {
-        alert('Erro ao conectar ao servidor. Verifique o usuário, senha ou o endereço do DNS.');
+        alert('Erro de conexão com o servidor. Verifique se o DNS/Usuário/Senha estão corretos ou se o servidor requer SSL/HTTPS.');
         logout();
       }
     }
 
     function playStream(url) {
-      // Passa a URL do fluxo pelo proxy para liberar a reprodução do canal
-      const proxyStreamUrl = 'https://corsproxy.io/?' + encodeURIComponent(url);
-
       if (Hls.isSupported()) {
         hls.destroy();
         hls = new Hls();
-        hls.loadSource(proxyStreamUrl);
+        hls.loadSource(url);
         hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, function() {
-          video.play();
-        });
+        hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = proxyStreamUrl;
+        video.src = url;
         video.play();
       }
     }
