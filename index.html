@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
   <title>Flex TV Player</title>
 
-  <!-- Configurações PWA para iOS -->
+  <!-- PWA iOS -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Flex TV">
@@ -20,11 +20,14 @@
       color: #fff;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       height: 100vh;
+      display: flex;
+      flex-direction: column;
       overflow: hidden;
       padding-top: env(safe-area-inset-top);
       padding-bottom: env(safe-area-inset-bottom);
     }
 
+    /* TELA DE LOGIN COM URL M3U */
     .login-container {
       display: flex;
       flex-direction: column;
@@ -41,7 +44,7 @@
       padding: 25px 20px;
       border-radius: 12px;
       width: 100%;
-      max-width: 360px;
+      max-width: 380px;
       box-shadow: 0 8px 24px rgba(0,0,0,0.5);
       text-align: center;
     }
@@ -88,6 +91,7 @@
       margin-top: 10px;
     }
 
+    /* TELA PRINCIPAL DO APP */
     .app-container {
       display: none;
       flex-direction: column;
@@ -95,7 +99,7 @@
     }
 
     header {
-      padding: 12px 15px;
+      padding: 10px 15px;
       background: #181b22;
       display: flex;
       justify-content: space-between;
@@ -112,12 +116,40 @@
       padding: 6px 12px;
       border-radius: 6px;
       font-size: 12px;
+      cursor: pointer;
     }
 
     .player-section { background: #000; width: 100%; }
-    video { width: 100%; max-height: 35vh; display: block; }
+    video { width: 100%; max-height: 30vh; display: block; }
 
-    .channels-section {
+    /* MENU DE ABAS (CANAIS / FILMES / SÉRIES) */
+    .nav-tabs {
+      display: flex;
+      background: #14171d;
+      border-bottom: 1px solid #232733;
+    }
+
+    .tab-btn {
+      flex: 1;
+      padding: 12px 0;
+      background: none;
+      border: none;
+      color: #888;
+      font-weight: bold;
+      font-size: 13px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      text-align: center;
+    }
+
+    .tab-btn.active {
+      color: #0084ff;
+      border-bottom-color: #0084ff;
+      background: #181b22;
+    }
+
+    /* CONTEÚDO E LISTA */
+    .content-area {
       flex: 1;
       overflow-y: auto;
       padding: 10px;
@@ -129,47 +161,56 @@
       margin-bottom: 6px;
       border-radius: 6px;
       border: 1px solid #232733;
-      font-size: 14px;
+      font-size: 13px;
       cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
 
-    .channel-item:active { background: #0084ff; }
+    .channel-item:active { background: #0084ff; color: #fff; }
+    .badge {
+      font-size: 10px;
+      background: #2f3442;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #aaa;
+    }
   </style>
 </head>
 <body>
 
-  <!-- TELA DE LOGIN -->
+  <!-- TELA DE ENTRADA VIA M3U -->
   <div class="login-container" id="loginScreen">
     <div class="login-card">
       <h2>FLEX TV WEB</h2>
       <div class="input-group">
-        <label>DNS / Servidor (URL com porta)</label>
-        <input type="text" id="serverHost" placeholder="http://servidor.com:8080">
+        <label>URL / Link da Lista M3U</label>
+        <input type="text" id="m3uUrlInput" placeholder="http://servidor.com/get.php?username=...&type=m3u">
       </div>
-      <div class="input-group">
-        <label>Usuário</label>
-        <input type="text" id="username" placeholder="Seu usuário">
-      </div>
-      <div class="input-group">
-        <label>Senha</label>
-        <input type="password" id="password" placeholder="Sua senha">
-      </div>
-      <button class="btn-login" onclick="login()">ENTRAR</button>
+      <button class="btn-login" onclick="startApp()">CARREGAR LISTA</button>
     </div>
   </div>
 
-  <!-- INTERFACE DO PLAYER -->
+  <!-- INTERFACE PRINCIPAL -->
   <div class="app-container" id="appScreen">
     <header>
       <h1>Flex TV</h1>
-      <button class="btn-logout" onclick="logout()">Sair</button>
+      <button class="btn-logout" onclick="logout()">Trocar Lista</button>
     </header>
 
     <div class="player-section">
       <video id="videoPlayer" controls autoplay></video>
     </div>
 
-    <div class="channels-section" id="channelList"></div>
+    <!-- ABAS DE NAVEGAÇÃO -->
+    <div class="nav-tabs">
+      <button class="tab-btn active" onclick="switchTab('live')">📺 CANAIS</button>
+      <button class="tab-btn" onclick="switchTab('movie')">🎬 FILMES</button>
+      <button class="tab-btn" onclick="switchTab('series')">🍿 SÉRIES</button>
+    </div>
+
+    <div class="content-area" id="itemList"></div>
   </div>
 
   <script>
@@ -180,7 +221,14 @@
     const video = document.getElementById('videoPlayer');
     let hls = new Hls();
 
-    // Lista de proxies de contingência
+    let allItems = {
+      live: [],
+      movie: [],
+      series: []
+    };
+    let currentType = 'live';
+
+    // Proxies de contingência para evitar erro CORS
     const PROXIES = [
       url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
       url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
@@ -188,13 +236,11 @@
     ];
 
     async function fetchWithFallback(targetUrl) {
-      // Tenta conexão direta primeiro
       try {
         const directRes = await fetch(targetUrl);
         if (directRes.ok) return await directRes.text();
       } catch (e) {}
 
-      // Tenta cada proxy da lista
       for (const proxyFn of PROXIES) {
         try {
           const res = await fetch(proxyFn(targetUrl));
@@ -204,65 +250,108 @@
           }
         } catch (e) {}
       }
-      throw new Error('Não foi possível conectar');
+      throw new Error('Não foi possível carregar a lista M3U.');
     }
 
-    async function login() {
-      let host = document.getElementById('serverHost').value.trim();
-      const user = document.getElementById('username').value.trim();
-      const pass = document.getElementById('password').value.trim();
+    async function startApp() {
+      const url = document.getElementById('m3uUrlInput').value.trim();
+      if (!url) return alert('Por favor, cole o link M3U completo!');
 
-      if (!host || !user || !pass) return alert('Preencha todos os campos!');
-
-      if (host.endsWith('/')) host = host.slice(0, -1);
-      if (!host.startsWith('http://') && !host.startsWith('https://')) {
-        host = 'http://' + host;
-      }
-
-      const m3uUrl = `${host}/get.php?username=${user}&password=${pass}&type=m3u_plus&output=ts`;
+      localStorage.setItem('flex_m3u_url', url);
 
       document.getElementById('loginScreen').style.display = 'none';
       document.getElementById('appScreen').style.display = 'flex';
 
-      loadChannels(m3uUrl);
+      await loadM3uList(url);
     }
 
     function logout() {
+      localStorage.removeItem('flex_m3u_url');
       document.getElementById('appScreen').style.display = 'none';
       document.getElementById('loginScreen').style.display = 'flex';
       if (hls) hls.destroy();
     }
 
-    async function loadChannels(m3uUrl) {
-      const listContainer = document.getElementById('channelList');
-      listContainer.innerHTML = '<p style="text-align:center; padding:20px; color:#888;">Carregando lista de canais...</p>';
+    async function loadM3uList(m3uUrl) {
+      const listContainer = document.getElementById('itemList');
+      listContainer.innerHTML = '<p style="text-align:center; padding:20px; color:#888;">Processando canais, filmes e séries...</p>';
 
       try {
         const text = await fetchWithFallback(m3uUrl);
-        const lines = text.split('\n');
-
-        listContainer.innerHTML = '';
-        let currentTitle = '';
-
-        lines.forEach(line => {
-          line = line.trim();
-          if (line.startsWith('#EXTINF:')) {
-            const parts = line.split(',');
-            currentTitle = parts[parts.length - 1];
-          } else if (line.startsWith('http')) {
-            const channelUrl = line;
-            const item = document.createElement('div');
-            item.className = 'channel-item';
-            item.innerHTML = `📺 ${currentTitle || 'Canal'}`;
-            item.onclick = () => playStream(channelUrl);
-            listContainer.appendChild(item);
-            currentTitle = '';
-          }
-        });
+        parseM3U(text);
+        renderCurrentList();
       } catch (err) {
-        alert('Erro de conexão com o servidor. Verifique se o DNS/Usuário/Senha estão corretos ou se o servidor requer SSL/HTTPS.');
+        alert('Erro ao carregar a lista. Verifique a URL M3U digitada.');
         logout();
       }
+    }
+
+    // Processa a M3U e separa em Canais, Filmes e Séries
+    function parseM3U(m3uContent) {
+      allItems = { live: [], movie: [], series: [] };
+      const lines = m3uContent.split('\n');
+
+      let currentGroup = '';
+      let currentTitle = '';
+
+      lines.forEach(line => {
+        line = line.trim();
+        if (line.startsWith('#EXTINF:')) {
+          const groupMatch = line.match(/group-title="([^"]+)"/i);
+          currentGroup = groupMatch ? groupMatch[1] : '';
+
+          const parts = line.split(',');
+          currentTitle = parts[parts.length - 1];
+        } else if (line.startsWith('http')) {
+          const itemUrl = line;
+          const groupLower = currentGroup.toLowerCase();
+          const titleLower = currentTitle.toLowerCase();
+
+          const item = { title: currentTitle, group: currentGroup, url: itemUrl };
+
+          // Regras de categorização automática
+          if (groupLower.includes('filme') || groupLower.includes('movie') || itemUrl.includes('/movie/')) {
+            allItems.movie.push(item);
+          } else if (groupLower.includes('série') || groupLower.includes('serie') || itemUrl.includes('/series/')) {
+            allItems.series.push(item);
+          } else {
+            allItems.live.push(item);
+          }
+
+          currentGroup = '';
+          currentTitle = '';
+        }
+      });
+    }
+
+    function switchTab(type) {
+      currentType = type;
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      event.target.classList.add('active');
+      renderCurrentList();
+    }
+
+    function renderCurrentList() {
+      const listContainer = document.getElementById('itemList');
+      listContainer.innerHTML = '';
+
+      const items = allItems[currentType] || [];
+
+      if (items.length === 0) {
+        listContainer.innerHTML = '<p style="text-align:center; padding:20px; color:#888;">Nenhum item encontrado nesta categoria.</p>';
+        return;
+      }
+
+      items.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'channel-item';
+        div.innerHTML = `
+          <span>${item.title}</span>
+          ${item.group ? `<span class="badge">${item.group}</span>` : ''}
+        `;
+        div.onclick = () => playStream(item.url);
+        listContainer.appendChild(div);
+      });
     }
 
     function playStream(url) {
@@ -277,6 +366,15 @@
         video.play();
       }
     }
+
+    // Auto-carregar se já houver URL salva
+    window.onload = () => {
+      const savedUrl = localStorage.getItem('flex_m3u_url');
+      if (savedUrl) {
+        document.getElementById('m3uUrlInput').value = savedUrl;
+        startApp();
+      }
+    };
   </script>
 </body>
 </html>
