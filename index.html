@@ -210,7 +210,6 @@
     const video = document.getElementById('videoPlayer');
     let hls = new Hls();
 
-    // Carregar dados salvos ao iniciar
     window.onload = () => {
       const savedHost = localStorage.getItem('iptv_host');
       const savedUser = localStorage.getItem('iptv_user');
@@ -233,15 +232,12 @@
         return alert('Preencha todos os campos!');
       }
 
-      // Remover barra no final do host se houver
       if (host.endsWith('/')) host = host.slice(0, -1);
 
-      // Salvar dados no navegador
       localStorage.setItem('iptv_host', host);
       localStorage.setItem('iptv_user', user);
       localStorage.setItem('iptv_pass', pass);
 
-      // Gerar URL da lista M3U via API Xtream Codes
       const m3uUrl = `${host}/get.php?username=${user}&password=${pass}&type=m3u_plus&output=ts`;
 
       document.getElementById('loginScreen').style.display = 'none';
@@ -261,8 +257,13 @@
       const listContainer = document.getElementById('channelList');
       listContainer.innerHTML = '<p style="text-align:center; padding:20px; color:#888;">Carregando canais...</p>';
 
+      // Utilizando o proxy CORS para contornar o bloqueio de navegador
+      const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(url);
+
       try {
-        const response = await fetch(url);
+        const response = await fetch(proxyUrl);
+        if (!response.ok) throw new Error('Erro na requisição');
+        
         const text = await response.text();
         const lines = text.split('\n');
 
@@ -285,22 +286,25 @@
           }
         });
       } catch (err) {
-        alert('Erro ao conectar ao servidor. Verifique os dados ou o bloqueio de CORS.');
+        alert('Erro ao conectar ao servidor. Verifique o usuário, senha ou o endereço do DNS.');
         logout();
       }
     }
 
     function playStream(url) {
+      // Passa a URL do fluxo pelo proxy para liberar a reprodução do canal
+      const proxyStreamUrl = 'https://corsproxy.io/?' + encodeURIComponent(url);
+
       if (Hls.isSupported()) {
         hls.destroy();
         hls = new Hls();
-        hls.loadSource(url);
+        hls.loadSource(proxyStreamUrl);
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, function() {
           video.play();
         });
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = url;
+        video.src = proxyStreamUrl;
         video.play();
       }
     }
